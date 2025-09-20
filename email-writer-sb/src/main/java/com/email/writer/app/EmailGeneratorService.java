@@ -1,17 +1,27 @@
 package com.email.writer.app;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
+import org.springframework.web.reactive.function.client.WebClient;
+
 import java.util.Map;
 
 
 @Service
 
 public class EmailGeneratorService {
+    private final WebClient webClient;
 
     @Value("${gemini.api.url}")
     private String geminiApiUrl;
     @Value("${gemini.api.key}")
     private String geminiApiKey;
+
+    public EmailGeneratorService(WebClient.Builder webClientBuilder) {
+        this.webClient = webClientBuilder.build();
+    }
+
     public String generateEmailReply(EmailRequest emailRequest){
         //build the prompt
         String prompt=buildPrompt(emailRequest);
@@ -24,8 +34,37 @@ public class EmailGeneratorService {
                 }
         );
         //do request and get response
+        String response =webClient.post()
+                .uri(geminiApiUrl + "?key=" + geminiApiKey)
+                .header("Content-Type","application/json")
+                .bodyValue(requestBody)
+                .retrieve()
 
-        //return response
+                .bodyToMono(String.class)
+                .block();
+
+        //extract and return response
+        return extractResponseContent(response);
+    }
+
+    private String extractResponseContent(String response) {
+        try{
+            ObjectMapper mapper = new ObjectMapper();
+            JsonNode rootNode = mapper.readTree(response);
+            return rootNode.path("candidates")
+                    .get(0)
+                    .path("content")
+                    .path("parts")
+                    .get(0)
+                    .path("text")
+                    .asText();
+
+
+
+
+        }catch(Exception e){
+            return "Error processing response:"+e.getMessage();
+        }
     }
 
     private String buildPrompt(EmailRequest emailRequest) {
